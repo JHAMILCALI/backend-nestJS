@@ -106,7 +106,7 @@ export class AuthService {
 
       console.log('💾 Creando usuario en el sistema...');
       // Crear usuario
-      const user = this.usersService.createUser({
+      const user = await this.usersService.createUser({
         username,
         email,
         credential,
@@ -115,7 +115,7 @@ export class AuthService {
       console.log('✅ Usuario creado exitosamente');
       console.log('   • ID de usuario:', user.id);
       console.log('   • Total de credenciales:', user.credentials.length);
-      console.log('💾 ✅ DATOS GUARDADOS EN PERSISTENCIA (data/users.json)');
+      console.log('💾 ✅ DATOS GUARDADOS EN SUPABASE');
       console.log('🔵 ============================================\n');
 
       // Generar JWT
@@ -196,7 +196,7 @@ export class AuthService {
 
       console.log('🔎 Buscando usuario en persistencia...');
       // Buscar usuario por credentialId
-      const result = this.usersService.findByCredentialId(credentialId);
+      const result = await this.usersService.findByCredentialId(credentialId);
 
       if (!result) {
         console.log('❌ Credencial NO encontrada en la persistencia');
@@ -302,6 +302,35 @@ export class AuthService {
       if (now > data.expiresAt) {
         this.challenges.delete(sessionId);
       }
+    }
+  }
+
+  /**
+   * Prueba la conexión con Supabase y devuelve todos los usuarios
+   */
+  async testSupabaseConnection() {
+    try {
+      const allUsers = await this.usersService.getAllUsers();
+      
+      return {
+        success: true,
+        message: '✅ Conexión con Supabase funcionando correctamente',
+        totalUsuarios: allUsers.length,
+        usuarios: allUsers.map((u) => ({
+          id: u.id,
+          username: u.username,
+          email: u.email,
+          auth_id: u.auth_id,
+          rol: u.rol,
+          created_at: u.created_at,
+        })),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '❌ Error al conectar con Supabase',
+        error: (error as Error).message,
+      };
     }
   }
 }

@@ -32,4 +32,5 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`🚀 Backend NestJS corriendo en http://localhost:${port}`);
 }
-bootstrap();
+
+void bootstrap();
