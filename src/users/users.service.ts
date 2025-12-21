@@ -196,6 +196,7 @@ export class UsersService {
    * Actualiza el último login del usuario en Supabase
    * Nota: El last_used_at ya se actualiza en usuario_credencial, que es suficiente
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async updateLastLogin(userId: string): Promise<void> {
     // La fecha del último login ya se actualiza en usuario_credencial.last_used_at
     // No es necesario actualizar nada adicional en la tabla usuario
