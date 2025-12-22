@@ -9,6 +9,8 @@ import {
   UseInterceptors,
   UploadedFiles,
   ParseIntPipe,
+  Headers,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { plainToClass } from 'class-transformer';
@@ -31,6 +33,7 @@ export class RecoleccionesController {
   @UseInterceptors(FileFieldsInterceptor([{ name: 'fotos', maxCount: 5 }]))
   async create(
     @Body() bodyRaw: any,
+    @Headers('x-auth-id') authId?: string,
     // @Request() req: any, // Descomentar cuando tengas el guard
     @UploadedFiles() files?: { fotos?: any[] },
   ) {
@@ -74,13 +77,16 @@ export class RecoleccionesController {
       throw new Error(`Validación fallida: ${messages}`);
     }
     
+    // Validar que se envió el auth_id
+    if (!authId) {
+      throw new UnauthorizedException('Header x-auth-id es requerido');
+    }
+
     // TODO: Descomentar cuando tengas autenticación JWT
     // const authId = req.user.sub; // auth_id desde el JWT
     // const userRole = req.user.rol;
     
-    // Por ahora usar valores de prueba
-    const authId = 'user_1766236001189_6oeptyz6n'; // Cambiar por req.user.sub
-    const userRole = 'ADMIN'; // Cambiar por req.user.rol
+    const userRole = 'ADMIN'; // Cambiar por req.user.rol cuando tengas JWT
 
     return this.recoleccionesService.create(
       createRecoleccionDto,
@@ -98,13 +104,16 @@ export class RecoleccionesController {
   // @UseGuards(JwtAuthGuard) // Descomentar cuando tengas el guard configurado
   async findAll(
     @Query() filters: FiltersRecoleccionDto,
+    @Headers('x-auth-id') authId?: string,
     // @Request() req: any, // Descomentar cuando tengas el guard
   ) {
+    // Validar que se envió el auth_id
+    if (!authId) {
+      throw new UnauthorizedException('Header x-auth-id es requerido');
+    }
+
     // TODO: Descomentar cuando tengas autenticación JWT
     // const authId = req.user.sub; // auth_id desde el JWT
-    
-    // Por ahora usar valores de prueba
-    const authId = 'user_1766236001189_6oeptyz6n'; // Cambiar por req.user.sub
     
     return this.recoleccionesService.findAll(authId, filters);
   }

@@ -123,10 +123,12 @@ export class AuthService {
 
       return {
         success: true,
+        auth_id: user.id, // auth_id en nivel principal
         user: {
           id: user.id,
           username: user.username,
           email: user.email,
+          auth_id: user.id, // auth_id dentro de user
         },
         token,
         message: 'Usuario registrado exitosamente',
@@ -261,10 +263,12 @@ export class AuthService {
 
       return {
         success: true,
+        auth_id: user.id, // auth_id en nivel principal
         user: {
           id: user.id,
           username: user.username,
           email: user.email,
+          auth_id: user.id, // auth_id dentro de user
         },
         token,
         message: 'Login exitoso',
