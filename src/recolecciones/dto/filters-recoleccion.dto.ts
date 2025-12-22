@@ -49,4 +49,8 @@ export class FiltersRecoleccionDto {
   @IsOptional()
   @IsString()
   q?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

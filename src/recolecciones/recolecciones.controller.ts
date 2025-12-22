@@ -92,11 +92,21 @@ export class RecoleccionesController {
 
   /**
    * GET /api/recolecciones
-   * Lista recolecciones con filtros
+   * Lista recolecciones del usuario autenticado con filtros
    */
   @Get()
-  async findAll(@Query() filters: FiltersRecoleccionDto) {
-    return this.recoleccionesService.findAll(filters);
+  // @UseGuards(JwtAuthGuard) // Descomentar cuando tengas el guard configurado
+  async findAll(
+    @Query() filters: FiltersRecoleccionDto,
+    // @Request() req: any, // Descomentar cuando tengas el guard
+  ) {
+    // TODO: Descomentar cuando tengas autenticación JWT
+    // const authId = req.user.sub; // auth_id desde el JWT
+    
+    // Por ahora usar valores de prueba
+    const authId = 'user_1766236001189_6oeptyz6n'; // Cambiar por req.user.sub
+    
+    return this.recoleccionesService.findAll(authId, filters);
   }
 
   /**

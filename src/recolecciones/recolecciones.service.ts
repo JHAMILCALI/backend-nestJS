@@ -372,13 +372,28 @@ export class RecoleccionesService {
   }
 
   /**
-   * Obtiene todas las recolecciones con filtros
+   * Obtiene todas las recolecciones del usuario autenticado con filtros
    */
-  async findAll(filters: FiltersRecoleccionDto) {
+  async findAll(authId: string, filters: FiltersRecoleccionDto) {
     const supabase = this.supabaseService.getClient();
 
+    // Buscar el ID numérico del usuario usando su auth_id
+    const { data: usuarioData, error: usuarioError } = await supabase
+      .from('usuario')
+      .select('id')
+      .eq('auth_id', authId)
+      .single();
+
+    if (usuarioError || !usuarioData) {
+      throw new NotFoundException(
+        `Usuario con auth_id ${authId} no encontrado`,
+      );
+    }
+
+    const userId = usuarioData.id;
+
     const page = filters.page || 1;
-    const limit = filters.limit || 10;
+    const limit = Math.min(filters.limit || 10, 50); // Máximo 50
     const offset = (page - 1) * limit;
 
     let query = supabase
@@ -387,17 +402,19 @@ export class RecoleccionesService {
         `
         *,
         usuario:usuario_id (id, nombre, username),
-        vivero:vivero_id (id, codigo, nombre),
-        ubicacion:ubicacion_id (id, comunidad, departamento)
+        planta:planta_id (id, especie, nombre_cientifico, variedad, fuente),
+        ubicacion:ubicacion_id (*),
+        metodo:metodo_id (id, nombre, descripcion),
+        vivero:vivero_id (id, codigo, nombre, ubicacion:ubicacion_id (departamento, comunidad)),
+        fotos:recoleccion_foto (*)
       `,
         { count: 'exact' },
       )
+      .eq('usuario_id', userId) // ⚠️ FILTRO AUTOMÁTICO POR USUARIO
+      .order('fecha', { ascending: false })
       .order('created_at', { ascending: false });
 
-    // Aplicar filtros
-    if (filters.usuario_id) {
-      query = query.eq('usuario_id', filters.usuario_id);
-    }
+    // Aplicar filtros opcionales
 
     if (filters.fecha_inicio) {
       query = query.gte('fecha', filters.fecha_inicio);
@@ -422,12 +439,22 @@ export class RecoleccionesService {
     // Aplicar paginación
     query = query.range(offset, offset + limit - 1);
 
+    // Buscar también por nombre de planta si se envía search
+    if (filters.search) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query = query.or(
+        `nombre_cientifico.ilike.%${filters.search}%,nombre_comercial.ilike.%${filters.search}%`,
+      );
+    }
+
     const { data, error, count } = await query;
 
     if (error) {
       console.error('❌ Error al obtener recolecciones:', error);
       throw new InternalServerErrorException('Error al obtener recolecciones');
     }
+
+    const totalPages = Math.ceil((count || 0) / limit);
 
     return {
       success: true,
@@ -436,7 +463,9 @@ export class RecoleccionesService {
         page,
         limit,
         total: count || 0,
-        totalPages: Math.ceil((count || 0) / limit),
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
       },
     };
   }
