@@ -18,11 +18,27 @@ export class RecoleccionesService {
    */
   async create(
     createRecoleccionDto: CreateRecoleccionDto,
-    userId: number,
+    authId: string,
     userRole: string,
     files?: any[],
   ) {
     const supabase = this.supabaseService.getClient();
+
+    // Buscar el ID numérico del usuario usando su auth_id
+    const { data: usuarioData, error: usuarioError } = await supabase
+      .from('usuario')
+      .select('id, nombre, rol')
+      .eq('auth_id', authId)
+      .single();
+
+    if (usuarioError || !usuarioData) {
+      throw new NotFoundException(
+        `Usuario con auth_id ${authId} no encontrado`,
+      );
+    }
+
+    const userId = usuarioData.id;
+    console.log(`✅ Usuario encontrado: ${usuarioData.nombre} (ID: ${userId}, auth_id: ${authId})`);
 
     // Validar permisos
     if (!['ADMIN', 'TECNICO'].includes(userRole)) {
@@ -177,24 +193,29 @@ export class RecoleccionesService {
       // PASO 2: Crear planta si especie_nueva = true
       if (createRecoleccionDto.especie_nueva) {
         console.log('🌿 Paso 2: Creando nueva planta...');
+        
+        const plantaData = {
+          especie: createRecoleccionDto.nueva_planta!.especie,
+          nombre_cientifico: createRecoleccionDto.nueva_planta!.nombre_cientifico,
+          variedad: createRecoleccionDto.nueva_planta!.variedad || 'Sin especificar',
+          tipo_planta: createRecoleccionDto.nueva_planta!.tipo_planta,
+          tipo_planta_otro: createRecoleccionDto.nueva_planta!.tipo_planta_otro,
+          // Temporalmente comentado hasta que el enum fuente_planta esté creado en Supabase
+          // fuente: createRecoleccionDto.nueva_planta!.fuente,
+        };
+
+        console.log('📋 Datos de planta a insertar:', JSON.stringify(plantaData, null, 2));
+        
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const { data: plantaCreada, error: plantaError } = await supabase
           .from('planta')
-          .insert({
-            especie: createRecoleccionDto.nueva_planta!.especie,
-            nombre_cientifico:
-              createRecoleccionDto.nueva_planta!.nombre_cientifico,
-            variedad: createRecoleccionDto.nueva_planta!.variedad,
-            tipo_planta: createRecoleccionDto.nueva_planta!.tipo_planta,
-            tipo_planta_otro:
-              createRecoleccionDto.nueva_planta!.tipo_planta_otro,
-            fuente: createRecoleccionDto.nueva_planta!.fuente,
-          })
+          .insert(plantaData)
           .select()
           .single();
 
         if (plantaError) {
           console.error('❌ Error al crear planta:', plantaError);
+          console.error('❌ Datos que se intentaron insertar:', plantaData);
           // Rollback: eliminar ubicación
           await supabase.from('ubicacion').delete().eq('id', ubicacionId);
           throw new InternalServerErrorException('Error al crear planta');
@@ -213,12 +234,12 @@ export class RecoleccionesService {
         for (const file of files) {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
           const nombreArchivo = `${Date.now()}_${file.originalname}`;
-          const rutaStorage = `recolecciones/${nombreArchivo}`;
+          const rutaStorage = `${nombreArchivo}`;
 
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { data: uploadData, error: uploadError } =
             await supabase.storage
-              .from('recolecciones')
+              .from('recoleccion_fotos')
               // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access
               .upload(rutaStorage, file.buffer, {
                 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
@@ -237,7 +258,7 @@ export class RecoleccionesService {
           }
 
           const { data: publicUrlData } = supabase.storage
-            .from('recolecciones')
+            .from('recoleccion_fotos')
             .getPublicUrl(rutaStorage);
 
           // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
@@ -292,10 +313,10 @@ export class RecoleccionesService {
         }
         // Eliminar fotos
         for (const foto of fotosUrls) {
-          const ruta = foto.url.split('/recolecciones/')[1];
+          const nombreArchivo = foto.url.split('/').pop();
           await supabase.storage
-            .from('recolecciones')
-            .remove([`recolecciones/${ruta}`]);
+            .from('recoleccion_fotos')
+            .remove([nombreArchivo!]);
         }
         throw new InternalServerErrorException('Error al crear recolección');
       }
@@ -327,10 +348,10 @@ export class RecoleccionesService {
             await supabase.from('planta').delete().eq('id', plantaIdFinal);
           }
           for (const foto of fotosUrls) {
-            const ruta = foto.url.split('/recolecciones/')[1];
+            const nombreArchivo = foto.url.split('/').pop();
             await supabase.storage
-              .from('recolecciones')
-              .remove([`recolecciones/${ruta}`]);
+              .from('recoleccion_fotos')
+              .remove([nombreArchivo!]);
           }
           throw new InternalServerErrorException('Error al guardar fotos');
         }
