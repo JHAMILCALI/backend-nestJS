@@ -279,6 +279,30 @@ export class RecoleccionesService {
 
       // PASO 4: Crear recolección
       console.log('📦 Paso 4: Creando registro de recolección...');
+      
+      // Generar código de trazabilidad único formato: REC-YYYY-NNN
+      const fecha = new Date(createRecoleccionDto.fecha);
+      const año = fecha.getFullYear();
+      
+      // Obtener el conteo de recolecciones del año actual para generar el número secuencial
+      const inicioAño = `${año}-01-01`;
+      const finAño = `${año}-12-31`;
+      
+      const { count, error: countError } = await supabase
+        .from('recoleccion')
+        .select('id', { count: 'exact', head: true })
+        .gte('fecha', inicioAño)
+        .lte('fecha', finAño);
+      
+      if (countError) {
+        console.error('❌ Error al contar recolecciones:', countError);
+        throw new InternalServerErrorException('Error al generar código de trazabilidad');
+      }
+      
+      const numeroSecuencial = ((count || 0) + 1).toString().padStart(3, '0');
+      const codigoTrazabilidad = `REC-${año}-${numeroSecuencial}`;
+      console.log('🏷️  Código de trazabilidad generado:', codigoTrazabilidad);
+      
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const { data: recoleccionCreada, error: recoleccionError } =
         await supabase
@@ -300,6 +324,7 @@ export class RecoleccionesService {
             vivero_id: createRecoleccionDto.vivero_id,
             metodo_id: createRecoleccionDto.metodo_id,
             planta_id: plantaIdFinal,
+            codigo_trazabilidad: codigoTrazabilidad,
           })
           .select()
           .single();
