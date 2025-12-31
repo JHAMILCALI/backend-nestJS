@@ -2,10 +2,10 @@
 
 ## 📋 Descripción General del Proyecto
 
-Sistema de gestión y seguimiento de viveros forestales que permite:
-- Registro de recolecciones de material vegetal (semillas, estacas, etc.)
-- Gestión de lotes de plantación con seguimiento de estados
-- Control de viveros y ubicaciones geográficas
+Sistema de gestión y seguimiento de viveros y plantaciones forestales que permite:
+- Registro de recolecciones de material vegetal (semillas, esquejes, etc.)
+- Gestión de fase vivero (lotes de plantines) y sus transiciones
+- Plantación en campo con riego, abono, fotos y monitoreo
 - Trazabilidad completa desde la recolección hasta la plantación
 - Gestión de usuarios con roles y autenticación
 
@@ -21,21 +21,20 @@ Almacena información de los usuarios del sistema.
 | Campo | Tipo | Restricciones | Descripción |
 |-------|------|---------------|-------------|
 | `id` | `bigint` | PK, AUTO | Identificador único |
+| `userid` | `text` | - | Handle visible (ej: andy, pablex) |
 | `nombre` | `text` | NOT NULL | Nombre completo del usuario |
-| `doc_identidad` | `text` | UNIQUE | Documento de identidad |
-| `wallet_address` | `text` | UNIQUE, formato 0x... | Dirección de wallet blockchain |
+| `doc_identidad` | `text` | UNIQUE, opcional | Documento de identidad |
+| `wallet_address` | `text` | UNIQUE, opcional; formato 0x... | Dirección de wallet blockchain |
 | `organizacion` | `text` | - | Organización a la que pertenece |
-| `contacto` | `text` | formato +número | Teléfono (formato internacional) |
+| `contacto` | `text` | opcional; formato +número | Teléfono (formato internacional) |
 | `rol` | `rol_usuario` | NOT NULL, DEFAULT 'GENERAL' | Rol del usuario |
-| `username` | `text` | UNIQUE, DEFAULT '' | Usuario para login |
-| `auth_id` | `text` | DEFAULT '' | ID de autenticación externa |
-| `correo` | `text` | UNIQUE, DEFAULT '' | Email del usuario |
 | `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de registro |
 
 **Relaciones:**
-- Un usuario puede tener múltiples recolecciones
-- Un usuario puede ser responsable de múltiples lotes
-- Un usuario puede registrar cambios en historial
+- Un usuario puede registrar múltiples recolecciones
+- Un usuario puede crear y actualizar lotes de fase vivero
+- Un usuario puede registrar plantaciones y participar en ellas
+- Un usuario puede registrar monitoreos de plantación
 - **Un usuario puede tener múltiples credenciales WebAuthn** → `usuario_credencial(usuario_id)` (1:N)
 
 **Validaciones:**
@@ -60,26 +59,12 @@ Almacena las credenciales de WebAuthn (passkeys) para autenticación biométrica
 | `last_used_at` | `timestamp with time zone` | - | Fecha del último uso de la credencial |
 
 **Relaciones:**
-- **usuario_id** → `usuario(id)` ON DELETE CASCADE - Si se elimina el usuario, se eliminan sus credenciales
-
-**Propósito:**
-- Permite autenticación sin contraseña usando passkeys
-- Soporta múltiples dispositivos por usuario (teléfono, laptop, USB, etc.)
-- Mayor seguridad que contraseñas tradicionales
-- Resistente a phishing y ataques de replay
+- **usuario_id** → `usuario(id)` ON DELETE CASCADE
 
 **Índices:**
 ```sql
 CREATE INDEX idx_usuario_credencial_usuario_id ON usuario_credencial(usuario_id);
 CREATE INDEX idx_usuario_credencial_credential_id ON usuario_credencial(credential_id);
-```
-
-**Ejemplo de uso:**
-```
-Un usuario puede tener:
-- Credencial 1: Huella digital en iPhone (transport: internal)
-- Credencial 2: Windows Hello en laptop (transport: internal)  
-- Credencial 3: YubiKey USB (transport: usb)
 ```
 
 ---
@@ -102,10 +87,7 @@ Almacena coordenadas geográficas y detalles de ubicación.
 **Relaciones:**
 - Una ubicación puede tener un vivero (1:1)
 - Una ubicación puede tener múltiples recolecciones
-
-**Validaciones:**
-- `latitud`: Rango válido -90° a 90°
-- `longitud`: Rango válido -180° a 180°
+- Una ubicación puede tener múltiples plantaciones
 
 ---
 
@@ -115,14 +97,14 @@ Registra los viveros forestales.
 | Campo | Tipo | Restricciones | Descripción |
 |-------|------|---------------|-------------|
 | `id` | `bigint` | PK, AUTO | Identificador único |
-| `codigo` | `text` | NOT NULL, UNIQUE | Código único del vivero |
-| `nombre` | `nombre_vivero` | NOT NULL | Nombre del vivero (ENUM) |
+| `codigo` | `text` | UNIQUE | Código único del vivero (ej: VIV-001) |
+| `nombre` | `text` | UNIQUE (case-insensitive) | Nombre del vivero |
 | `ubicacion_id` | `bigint` | NOT NULL, UNIQUE, FK | Referencia a ubicación |
 | `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de creación |
 
 **Relaciones:**
 - **ubicacion_id** → `ubicacion(id)` (1:1)
-- Un vivero puede tener múltiples lotes de plantación
+- Un vivero puede tener múltiples lotes de fase vivero
 - Un vivero puede recibir múltiples recolecciones
 
 ---
@@ -137,12 +119,12 @@ Catálogo de especies vegetales.
 | `nombre_cientifico` | `text` | NOT NULL | Nombre científico (género + especie) |
 | `variedad` | `text` | NOT NULL | Variedad de la planta |
 | `tipo_planta` | `text` | - | Tipo de planta (árbol, arbusto, etc.) |
-| `tipo_planta_otro` | `text` | - | Otro tipo no catalogado |
-| `fuente` | `fuente_planta` | NOT NULL | Origen (NATIVA, INTRODUCIDA, etc.) |
+| `tipo_planta_otro` | `text` | Requerido si tipo_planta=Otro | Otro tipo no catalogado |
+| `fuente` | `tipo_material_origen` | NOT NULL | Origen (SEMILLA, ESQUEJE) |
 | `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de registro |
 
 **Relaciones:**
-- Una planta puede tener múltiples lotes de plantación
+- Una planta puede tener múltiples lotes de fase vivero
 - Una planta puede estar en múltiples recolecciones
 
 ---
@@ -153,29 +135,24 @@ Catálogo de métodos de recolección.
 | Campo | Tipo | Restricciones | Descripción |
 |-------|------|---------------|-------------|
 | `id` | `bigint` | PK, AUTO | Identificador único |
-| `nombre` | `metodo_recoleccion_tipo` | NOT NULL, UNIQUE | Nombre del método (ENUM) |
+| `nombre` | `text` | UNIQUE (case-insensitive) | Nombre del método |
 | `descripcion` | `text` | - | Descripción del método |
-
-**Ejemplos de métodos:**
-- Directa del árbol
-- Del suelo
-- Compra
-- Donación
 
 ---
 
 ### 7. 📦 `recoleccion`
-Registra las recolecciones de material vegetal (semillas, estacas, etc.).
+Registra las recolecciones de material vegetal.
 
 | Campo | Tipo | Restricciones | Descripción |
 |-------|------|---------------|-------------|
 | `id` | `bigint` | PK, AUTO | Identificador único |
+| `codigo_trazabilidad` | `text` | UNIQUE | Código tipo `REC-YYYY-XXXXX` |
 | `fecha` | `date` | NOT NULL, últimos 45 días | Fecha de recolección |
-| `nombre_cientifico` | `text` | - | Nombre científico |
-| `nombre_comercial` | `text` | - | Nombre común |
+| `nombre_cientifico` | `text` | opcional | Requerido si no hay `planta_id` |
+| `nombre_comercial` | `text` | opcional | Requerido si no hay `planta_id` |
 | `cantidad` | `numeric` | NOT NULL, > 0 | Cantidad recolectada |
-| `unidad` | `text` | NOT NULL | Unidad de medida (kg, unidades, etc.) |
-| `tipo_material` | `tipo_material` | NOT NULL | SEMILLA, ESTACA, PLANTULA, etc. |
+| `unidad` | `text` | NOT NULL | UNIDAD/UNIDADES para ESQUEJE; KG/G para SEMILLA |
+| `tipo_material` | `tipo_material_origen` | NOT NULL | SEMILLA o ESQUEJE |
 | `estado` | `estado_recoleccion` | NOT NULL, DEFAULT 'ALMACENADO' | Estado actual |
 | `especie_nueva` | `boolean` | NOT NULL, DEFAULT false | ¿Es nueva especie? |
 | `observaciones` | `text` | max 1000 chars | Notas adicionales |
@@ -187,16 +164,11 @@ Registra las recolecciones de material vegetal (semillas, estacas, etc.).
 | `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de registro |
 
 **Relaciones:**
-- **usuario_id** → `usuario(id)` - Quién recolectó
-- **ubicacion_id** → `ubicacion(id)` - Dónde se recolectó
-- **vivero_id** → `vivero(id)` - A dónde se envió
-- **metodo_id** → `metodo_recoleccion(id)` - Cómo se recolectó
-- **planta_id** → `planta(id)` - Qué especie es
-
-**Validaciones:**
-- `fecha`: Solo permite fechas entre hoy y 45 días atrás
-- `cantidad`: Debe ser mayor a 0
-- `observaciones`: Máximo 1000 caracteres
+- **usuario_id** → `usuario(id)`
+- **ubicacion_id** → `ubicacion(id)`
+- **vivero_id** → `vivero(id)`
+- **metodo_id** → `metodo_recoleccion(id)`
+- **planta_id** → `planta(id)`
 
 ---
 
@@ -215,18 +187,18 @@ Almacena fotos asociadas a recolecciones.
 **Relaciones:**
 - **recoleccion_id** → `recoleccion(id)`
 
-**Validaciones:**
-- `peso_bytes`: Máximo 5,242,880 bytes (5MB)
-- `formato`: Solo JPG, JPEG o PNG
+**Regla de negocio:**
+- Mínimo 2 fotos por recolección (validar en backend)
 
 ---
 
-### 9. 🌳 `lote_plantacion`
-Gestiona lotes de plantas en proceso de crecimiento.
+### 9. 🧪 `lote_fase_vivero`
+Gestiona lotes de plantines en fase de vivero.
 
 | Campo | Tipo | Restricciones | Descripción |
 |-------|------|---------------|-------------|
 | `id` | `bigint` | PK, AUTO | Identificador único |
+| `codigo_trazabilidad` | `text` | UNIQUE | Código tipo `LFV-YYYY-XXXXX` |
 | `planta_id` | `bigint` | NOT NULL, FK | Especie del lote |
 | `vivero_id` | `bigint` | NOT NULL, FK | Vivero donde está |
 | `responsable_id` | `bigint` | NOT NULL, FK | Responsable del lote |
@@ -240,38 +212,31 @@ Gestiona lotes de plantas en proceso de crecimiento.
 | `fecha_salida` | `date` | - | Fecha de salida del vivero |
 | `altura_prom_sombra` | `numeric` | - | Altura promedio al entrar a sombra |
 | `altura_prom_salida` | `numeric` | - | Altura promedio al salir |
-| `estado` | `lote_estado` | NOT NULL, DEFAULT 'INICIO' | Estado actual del lote |
+| `estado` | `lote_fase_vivero_estado` | NOT NULL, DEFAULT 'INICIO' | Estado actual |
 | `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de creación |
 | `updated_at` | `timestamp with time zone` | - | Última actualización |
-| `updated_by` | `bigint` | FK | Usuario que actualizó |
+| `updated_by` | `bigint` | FK | Usuario que actualizó (obligatorio en UPDATE) |
 
 **Relaciones:**
-- **planta_id** → `planta(id)` - Especie
-- **vivero_id** → `vivero(id)` - Ubicación
-- **responsable_id** → `usuario(id)` - Responsable
-- **updated_by** → `usuario(id)` - Quién actualizó
-
-**Estados del lote:**
-- `INICIO`: Recién iniciado
-- `EMBOLSADO`: Plantas embolsadas
-- `SOMBRA`: En área de sombra
-- `LISTO`: Listo para plantar
-- `PLANTADO`: Ya plantado en campo
+- **planta_id** → `planta(id)`
+- **vivero_id** → `vivero(id)`
+- **responsable_id** → `usuario(id)`
+- **updated_by** → `usuario(id)`
 
 ---
 
-### 10. 📋 `lote_plantacion_historial`
-Registra todos los cambios realizados en un lote.
+### 10. 📋 `lote_fase_vivero_historial`
+Registra los cambios realizados en un lote de fase vivero.
 
 | Campo | Tipo | Restricciones | Descripción |
 |-------|------|---------------|-------------|
 | `id` | `bigint` | PK, AUTO | Identificador único |
 | `lote_id` | `bigint` | NOT NULL, FK | Lote al que pertenece |
-| `nro_cambio` | `integer` | NOT NULL | Número secuencial del cambio |
+| `nro_cambio` | `integer` | UNIQUE por lote | Número secuencial del cambio |
 | `fecha_cambio` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Cuándo se hizo el cambio |
 | `responsable_id` | `bigint` | NOT NULL, FK | Quién hizo el cambio |
-| `accion` | `accion_historial` | NOT NULL | Tipo de acción (CREAR, ACTUALIZAR, etc.) |
-| `estado` | `lote_estado` | NOT NULL | Estado después del cambio |
+| `accion` | `accion_historial_lote` | NOT NULL | Tipo de acción |
+| `estado` | `lote_fase_vivero_estado` | NOT NULL | Estado después del cambio |
 | `cantidad_inicio` | `integer` | - | Snapshot: cantidad inicial |
 | `cantidad_embolsadas` | `integer` | - | Snapshot: embolsadas |
 | `cantidad_sombra` | `integer` | - | Snapshot: en sombra |
@@ -285,31 +250,161 @@ Registra todos los cambios realizados en un lote.
 | `notas` | `text` | max 2000 chars | Observaciones del cambio |
 
 **Relaciones:**
-- **lote_id** → `lote_plantacion(id)`
+- **lote_id** → `lote_fase_vivero(id)`
 - **responsable_id** → `usuario(id)`
 
 **Propósito:**
-- Auditoría completa de cambios
-- Trazabilidad de modificaciones
-- Historial de responsables
+- Auditoría y trazabilidad completa de modificaciones
 
 ---
 
-### 11. 🔗 `lote_plantacion_recoleccion`
-Tabla de relación muchos a muchos entre lotes y recolecciones.
+### 11. 📷 `lote_fase_vivero_foto`
+Almacena fotos asociadas a un cambio en el historial de un lote de fase vivero.
 
 | Campo | Tipo | Restricciones | Descripción |
 |-------|------|---------------|-------------|
-| `lote_id` | `bigint` | PK, FK | Lote de plantación |
-| `recoleccion_id` | `bigint` | PK, FK | Recolección de origen |
+| `id` | `bigint` | PK, AUTO | Identificador único |
+| `lote_historial_id` | `bigint` | NOT NULL, FK | Referencia al historial del lote |
+| `url` | `text` | NOT NULL | URL de la imagen |
+| `peso_bytes` | `integer` | max 5MB | Tamaño del archivo |
+| `formato` | `text` | JPG, JPEG, PNG | Formato de imagen |
+| `es_portada` | `boolean` | - | TRUE si es la foto principal de ese cambio |
+| `descripcion` | `text` | - | Descripción (ej: detalle de raíces, vista general) |
+| `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de subida |
 
 **Relaciones:**
-- **lote_id** → `lote_plantacion(id)`
-- **recoleccion_id** → `recoleccion(id)`
+- **lote_historial_id** → `lote_fase_vivero_historial(id)`
 
-**Propósito:**
-- Relacionar qué recolecciones alimentaron qué lotes
-- Trazabilidad desde semilla hasta planta
+---
+
+### 12. 🔗 `lote_fase_vivero_recoleccion`
+Relación N:M entre lotes de fase vivero y recolecciones.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `lote_id` | `bigint` | PK, FK | Lote de fase vivero |
+| `recoleccion_id` | `bigint` | PK, FK | Recolección de origen |
+
+---
+
+### 13. 💧 `tipo_riego`
+Catálogo de tipos de riego.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `id` | `bigint` | PK, AUTO | Identificador único |
+| `nombre` | `text` | UNIQUE | Botellas recicladas, Goteo, Natural, Inundación |
+| `descripcion` | `text` | - | Descripción |
+
+---
+
+### 14. 🌿 `tipo_abono`
+Catálogo de tipos de abono.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `id` | `bigint` | PK, AUTO | Identificador único |
+| `nombre` | `text` | UNIQUE | Humus, Tierra negra, Compost, etc. |
+| `descripcion` | `text` | - | Descripción |
+
+---
+
+### 15. 🌳 `plantacion`
+Registra plantaciones en campo.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `id` | `bigint` | PK, AUTO | Identificador único |
+| `codigo_trazabilidad` | `text` | UNIQUE | Código tipo `PLA-YYYY-XXXXX` |
+| `destino` | `destino_plantacion` | NOT NULL | ARBORIZACION, FORESTACION, REFORESTACION |
+| `ubicacion_id` | `bigint` | NOT NULL, FK | Ubicación donde se plantó |
+| `cantidad_arboles` | `integer` | NOT NULL, > 0 | Cantidad de árboles |
+| `fecha_plantacion` | `date` | NOT NULL | Fecha de plantación |
+| `superficie_m2` | `numeric` | - | Área de la plantación |
+| `tamano_promedio_cm` | `numeric` | - | Tamaño promedio al plantar |
+| `propietario` | `text` | - | Nombre del dueño del terreno |
+| `origen_propiedad` | `origen_propiedad` | - | DONADO, ADQUIRIDO, OTRO, NULL |
+| `frecuencia_monitoreo_dias` | `integer` | - | Cada cuántos días se monitorea |
+| `created_by` | `bigint` | NOT NULL, FK | Usuario que registra |
+| `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de registro |
+
+**Relaciones:**
+- **ubicacion_id** → `ubicacion(id)`
+- **created_by** → `usuario(id)`
+
+---
+
+### 16. 👥 `plantacion_usuario`
+Relación de usuarios participantes en una plantación.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `plantacion_id` | `bigint` | PK, FK | Plantación |
+| `usuario_id` | `bigint` | PK, FK | Usuario participante |
+| `rol` | `text` | - | RESPONSABLE / VOLUNTARIO / TECNICO / etc. |
+
+---
+
+### 17. 🔗 `plantacion_lote_fase_vivero`
+Relación N:M entre plantaciones y lotes de fase vivero.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `plantacion_id` | `bigint` | PK, FK | Plantación |
+| `lote_fase_vivero_id` | `bigint` | PK, FK | Lote de fase vivero |
+| `cantidad_plantines_usados` | `integer` | NOT NULL, > 0 | Plantines usados |
+
+---
+
+### 18. 🚿 `plantacion_riego`
+Relación N:M entre plantaciones y tipos de riego.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `plantacion_id` | `bigint` | PK, FK | Plantación |
+| `tipo_riego_id` | `bigint` | PK, FK | Tipo de riego |
+
+---
+
+### 19. 🧫 `plantacion_abono`
+Relación N:M entre plantaciones y tipos de abono.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `plantacion_id` | `bigint` | PK, FK | Plantación |
+| `tipo_abono_id` | `bigint` | PK, FK | Tipo de abono |
+
+---
+
+### 20. 📷 `plantacion_foto`
+Almacena fotos asociadas a una plantación.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `id` | `bigint` | PK, AUTO | Identificador único |
+| `plantacion_id` | `bigint` | NOT NULL, FK | Plantación asociada |
+| `url` | `text` | NOT NULL | URL de la imagen |
+| `peso_bytes` | `integer` | max 5MB | Tamaño del archivo |
+| `formato` | `text` | JPG, JPEG, PNG | Formato de imagen |
+| `descripcion` | `text` | - | Descripción de la foto |
+| `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de subida |
+
+---
+
+### 21. 📊 `plantacion_monitoreo`
+Registra monitoreos de una plantación.
+
+| Campo | Tipo | Restricciones | Descripción |
+|-------|------|---------------|-------------|
+| `id` | `bigint` | PK, AUTO | Identificador único |
+| `plantacion_id` | `bigint` | NOT NULL, FK | Plantación asociada |
+| `fecha_monitoreo` | `date` | NOT NULL | Fecha del monitoreo |
+| `arboles_vivos` | `integer` | - | Cantidad de árboles vivos |
+| `arboles_muertos` | `integer` | - | Cantidad de árboles muertos |
+| `arboles_reemplazados` | `integer` | - | Cantidad de árboles reemplazados |
+| `notas` | `text` | - | Observaciones |
+| `usuario_id` | `bigint` | NOT NULL, FK | Usuario que monitorea |
+| `created_at` | `timestamp with time zone` | NOT NULL, DEFAULT now() | Fecha de registro |
 
 ---
 
@@ -317,79 +412,83 @@ Tabla de relación muchos a muchos entre lotes y recolecciones.
 
 ### `rol_usuario`
 ```sql
-'ADMIN'       -- Administrador del sistema
-'TECNICO'     -- Técnico de campo
-'GENERAL'     -- Usuario general
-'CONSULTOR'   -- Solo lectura
+'RECOLECTOR'
+'VIVERO'
+'VOLUNTARIO'
+'GENERAL'
 ```
 
-### `fuente_planta`
+### `tipo_material_origen`
 ```sql
-'NATIVA'      -- Especie nativa
-'INTRODUCIDA' -- Especie introducida
-'ENDEMICA'    -- Endémica de la región
-```
-
-### `tipo_material`
-```sql
-'SEMILLA'     -- Material: semilla
-'ESTACA'      -- Material: estaca
-'PLANTULA'    -- Material: plántula
-'INJERTO'     -- Material: injerto
+'SEMILLA'
+'ESQUEJE'
 ```
 
 ### `estado_recoleccion`
 ```sql
-'ALMACENADO'  -- En almacén
-'EN_PROCESO'  -- En proceso de siembra/propagación
-'UTILIZADO'   -- Ya utilizado completamente
-'DESCARTADO'  -- Descartado por mala calidad
+'ALMACENADO'
+'USADO'
+'DESECHADO'
 ```
 
-### `lote_estado`
+### `lote_fase_vivero_estado`
 ```sql
-'INICIO'      -- Recién iniciado
-'EMBOLSADO'   -- Embolsadas las plantas
-'SOMBRA'      -- En área de sombra
-'LISTO'       -- Listo para plantar
-'PLANTADO'    -- Plantado en campo definitivo
+'INICIO'
+'EMBOLSADO'
+'SOMBRA'
+'LISTA_PLANTAR'
+'SALIDA_VIVERO'
 ```
 
-### `accion_historial`
+### `accion_historial_lote`
 ```sql
-'CREAR'       -- Creación del registro
-'ACTUALIZAR'  -- Actualización de datos
-'ELIMINAR'    -- Eliminación (lógica)
-'CAMBIO_ESTADO' -- Cambio de estado
+'INICIO'
+'EMBOLSADO'
+'SOMBRA'
+'LISTA_PLANTAR'
+'SALIDA'
+'AJUSTE'
+```
+
+### `destino_plantacion`
+```sql
+'ARBORIZACION'
+'FORESTACION'
+'REFORESTACION'
+```
+
+### `origen_propiedad`
+```sql
+'DONADO'
+'ADQUIRIDO'
+'OTRO'
+'NULL'
 ```
 
 ---
 
 ## 🔄 Diagrama de Relaciones Principales
 
+Diagrama completo en `db-strucuture.md`. Resumen de relaciones clave:
+
 ```
-┌─────────────┐
-│   usuario   │
-└──────┬──────┘
-       │
-       ├─── recolecta ──→ ┌──────────────┐
-       │                  │ recoleccion  │
-       │                  └──────┬───────┘
-       │                         │
-       │                         ├──→ ubicacion
-       │                         ├──→ vivero
-       │                         ├──→ planta
-       │                         ├──→ metodo_recoleccion
-       │                         └──→ recoleccion_foto (1:N)
-       │
-       └─── responsable ──→ ┌────────────────────┐
-                            │ lote_plantacion    │
-                            └─────────┬──────────┘
-                                      │
-                                      ├──→ planta
-                                      ├──→ vivero
-                                      ├──→ lote_plantacion_recoleccion (N:M)
-                                      └──→ lote_plantacion_historial (1:N)
+usuario
+ ├─< recoleccion >─ ubicacion
+ │                ├─ vivero
+ │                ├─ planta
+ │                └─ metodo_recoleccion
+ ├─< lote_fase_vivero >─ vivero
+ │          └─< lote_fase_vivero_historial
+ │                    └─< lote_fase_vivero_foto
+ └─< plantacion >─ ubicacion
+            ├─< plantacion_foto
+            ├─< plantacion_monitoreo
+            └─< plantacion_usuario
+
+recoleccion <-> lote_fase_vivero (N:M)
+plantacion <-> lote_fase_vivero (N:M)
+plantacion <-> tipo_riego (N:M)
+plantacion <-> tipo_abono (N:M)
 ```
 
 ---
@@ -401,21 +500,20 @@ Tabla de relación muchos a muchos entre lotes y recolecciones.
 Usuario → Recolecta material → Registra ubicación → Asigna vivero destino
 ```
 
-### 2️⃣ Creación de Lote
+### 2️⃣ Fase Vivero
 ```
-Material recolectado → Crea lote → Asigna responsable → Estado: INICIO
-```
-
-### 3️⃣ Proceso de Crecimiento
-```
-INICIO → EMBOLSADO → SOMBRA → LISTO → PLANTADO
-  ↓         ↓          ↓        ↓         ↓
- (se registra fecha y cantidad en cada transición)
+Crea lote (LFV) → Transiciones: INICIO → EMBOLSADO → SOMBRA → LISTA_PLANTAR → SALIDA_VIVERO
 ```
 
-### 4️⃣ Auditoría
+### 3️⃣ Plantación en Campo
 ```
-Cada cambio → Se registra en historial → Con responsable y notas
+Se crea plantación → Se vinculan lotes LFV → Se registran riego, abono y fotos
+```
+
+### 4️⃣ Monitoreo y Auditoría
+```
+Monitoreos periódicos → Registro de estado y mortalidad
+Historial automático en LOTE_FASE_VIVERO_HISTORIAL con fotos en LOTE_FASE_VIVERO_FOTO
 ```
 
 ---
@@ -424,21 +522,12 @@ Cada cambio → Se registra en historial → Con responsable y notas
 
 El sistema implementa autenticación biométrica sin contraseña usando passkeys.
 
-### ✅ Tablas Implementadas
+### ✅ Tabla Implementada
 
 **Tabla `usuario_credencial`:**
-- Almacena las credenciales WebAuthn de cada usuario
-- Relación 1:N con `usuario` (un usuario puede tener múltiples passkeys)
-- Cada credencial contiene:
-  - `credential_id`: Identificador único de la passkey
-  - `public_key`: Clave pública para verificar firmas
-  - `counter`: Contador anti-replay que incrementa en cada uso
-  - `transports`: Tipo de autenticador (huella, Face ID, USB, etc.)
-
-**Campos en `usuario` relacionados:**
-- `username`: Usuario para login con passkey
-- `auth_id`: ID generado automáticamente para la credencial
-- `correo`: Email para recuperación y notificaciones
+- Almacena credenciales WebAuthn por usuario
+- Relación 1:N con `usuario`
+- Cada credencial contiene `credential_id`, `public_key`, `counter`, `transports`
 
 ### 🔄 Flujo de Autenticación
 
@@ -446,27 +535,17 @@ El sistema implementa autenticación biométrica sin contraseña usando passkeys
 ```
 1. Usuario solicita challenge → Backend genera challenge aleatorio
 2. Frontend activa WebAuthn → Navegador muestra prompt biométrico
-3. Usuario autentica (huella, Face ID) → Dispositivo genera par de claves
-4. Frontend envía credencial pública → Backend valida y guarda en usuario_credencial
-5. Backend crea registro en usuario → Retorna JWT token
+3. Dispositivo genera par de claves → Se almacena la clave pública
+4. Backend guarda la credencial → Retorna JWT token
 ```
 
 #### Login
 ```
 1. Usuario solicita challenge → Backend genera challenge
-2. Frontend envía username → Backend busca credenciales del usuario
-3. WebAuthn solicita autenticación → Usuario confirma con biométrica
-4. Dispositivo firma challenge → Backend verifica con public_key
-5. Backend actualiza counter y last_used_at → Retorna JWT token
+2. WebAuthn solicita autenticación → Usuario confirma con biométrica
+3. Dispositivo firma challenge → Backend verifica con public_key
+4. Backend actualiza counter → Retorna JWT token
 ```
-
-### 🎯 Ventajas del Sistema
-
-- ✅ **Sin contraseñas**: Mayor seguridad, no hay credenciales que robar
-- ✅ **Resistente a phishing**: Las credenciales están vinculadas al dominio
-- ✅ **Multi-dispositivo**: Un usuario puede usar múltiples passkeys
-- ✅ **Auditoría**: Se registra `last_used_at` en cada autenticación
-- ✅ **Counter anti-replay**: Previene ataques de repetición
 
 ### 📊 Endpoints Implementados
 
@@ -483,29 +562,23 @@ GET  /api/auth/test-supabase       → Verificar conexión a base de datos
 
 ### Por Usuario
 - Total de recolecciones realizadas
-- Lotes bajo su responsabilidad
-- Historial de acciones
-- **Credenciales activas y último uso** 🆕
-
-### Por Autenticación 🆕
-- Total de logins por método (passkey vs tradicional)
-- Dispositivos más utilizados por usuario
-- Auditoría de accesos con timestamp
-- Credenciales inactivas (sin usar en X días)
+- Lotes LFV bajo su responsabilidad
+- Plantaciones registradas o en las que participa
+- Monitoreos realizados
 
 ### Por Vivero
-- Cantidad de lotes activos por estado
+- Cantidad de lotes LFV activos por estado
 - Especies en proceso
 - Capacidad utilizada vs disponible
 
+### Por Plantación
+- Superficie plantada por destino
+- Evolución de supervivencia por monitoreos
+- Lotes LFV utilizados y trazabilidad
+
 ### Por Especie (Planta)
 - Total de recolecciones
-- Lotes activos
-- Tasa de éxito (cantidad plantada / cantidad inicial)
-
-### Por Recolección
-- Trazabilidad completa hasta lote plantado
-- Rendimiento (plantas producidas vs material recolectado)
+- Lotes activos y plantaciones asociadas
 
 ---
 
@@ -513,33 +586,40 @@ GET  /api/auth/test-supabase       → Verificar conexión a base de datos
 
 ### Índices Recomendados
 ```sql
--- Búsquedas frecuentes en recolecciones y lotes
+-- Recolecciones
 CREATE INDEX idx_recoleccion_usuario ON recoleccion(usuario_id);
 CREATE INDEX idx_recoleccion_fecha ON recoleccion(fecha);
-CREATE INDEX idx_lote_estado ON lote_plantacion(estado);
-CREATE INDEX idx_lote_vivero ON lote_plantacion(vivero_id);
-CREATE INDEX idx_historial_lote ON lote_plantacion_historial(lote_id);
+CREATE UNIQUE INDEX idx_recoleccion_codigo ON recoleccion(codigo_trazabilidad);
 
--- Índices para autenticación WebAuthn 🆕
+-- Lotes fase vivero
+CREATE INDEX idx_lfv_estado ON lote_fase_vivero(estado);
+CREATE INDEX idx_lfv_vivero ON lote_fase_vivero(vivero_id);
+CREATE INDEX idx_lfv_historial_lote ON lote_fase_vivero_historial(lote_id);
+CREATE INDEX idx_lfv_foto_historial ON lote_fase_vivero_foto(lote_historial_id);
+
+-- Plantaciones
+CREATE INDEX idx_plantacion_fecha ON plantacion(fecha_plantacion);
+CREATE INDEX idx_plantacion_destino ON plantacion(destino);
+CREATE INDEX idx_plantacion_ubicacion ON plantacion(ubicacion_id);
+
+-- Autenticación WebAuthn
 CREATE INDEX idx_usuario_credencial_usuario_id ON usuario_credencial(usuario_id);
 CREATE INDEX idx_usuario_credencial_credential_id ON usuario_credencial(credential_id);
-CREATE INDEX idx_usuario_username ON usuario(username);
 ```
 
 ### Triggers Sugeridos
 ```sql
--- Actualizar updated_at automáticamente
--- Validar transiciones de estado
--- Registrar automáticamente en historial
--- Actualizar counter de materiales al crear lote
+-- Actualizar updated_at automáticamente en LOTE_FASE_VIVERO
+-- Registrar automáticamente en LOTE_FASE_VIVERO_HISTORIAL
+-- Validar transiciones de estado en LOTE_FASE_VIVERO
 ```
 
 ### Políticas de Seguridad (RLS - Supabase)
 - Usuarios solo ven sus propias recolecciones
-- Admins ven todo
-- Técnicos ven lotes de su vivero
-- Consultores solo lectura
-- **Usuarios solo acceden a sus propias credenciales WebAuthn** 🆕
+- Admins/roles con privilegios ven todo
+- Técnicos de vivero ven sus lotes
+- Participantes solo ven plantaciones asignadas
+- **Usuarios solo acceden a sus propias credenciales WebAuthn**
 
 ---
 
@@ -552,9 +632,8 @@ Este sistema permite:
 - ✅ Geolocalización precisa
 - ✅ Gestión de múltiples viveros
 - ✅ Reportes y estadísticas
-- ✅ **Autenticación biométrica sin contraseña (WebAuthn)** 🆕
-- ✅ **Soporte multi-dispositivo para passkeys** 🆕
+- ✅ Autenticación biométrica sin contraseña (WebAuthn)
 
 **Base de Datos:** PostgreSQL en Supabase  
-**Total de Tablas:** 11 (10 del sistema + 1 de autenticación)  
-**Última actualización:** 20 de diciembre de 2025
+**Total de Tablas:** 21 (20 del dominio + 1 de autenticación)  
+**Última actualización:** Alineada con `db-strucuture.md` (vFinal + Módulo Plantación)
