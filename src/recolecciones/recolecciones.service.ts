@@ -496,6 +496,93 @@ export class RecoleccionesService {
   }
 
   /**
+   * Obtiene todas las recolecciones por vivero con filtros
+   */
+  async findByVivero(viveroId: number, filters: FiltersRecoleccionDto) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: vivero, error: viveroError } = await supabase
+      .from('vivero')
+      .select('id')
+      .eq('id', viveroId)
+      .single();
+
+    if (viveroError || !vivero) {
+      throw new NotFoundException('Vivero no encontrado');
+    }
+
+    const page = filters.page || 1;
+    const limit = Math.min(filters.limit || 10, 50);
+    const offset = (page - 1) * limit;
+
+    let query = supabase
+      .from('recoleccion')
+      .select(
+        `
+        *,
+        usuario:usuario_id (id, nombre, username),
+        planta:planta_id (id, especie, nombre_cientifico, variedad, fuente),
+        ubicacion:ubicacion_id (*),
+        metodo:metodo_id (id, nombre, descripcion),
+        vivero:vivero_id (id, codigo, nombre, ubicacion:ubicacion_id (departamento, comunidad)),
+        fotos:recoleccion_foto (*)
+      `,
+        { count: 'exact' },
+      )
+      .eq('vivero_id', viveroId)
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (filters.fecha_inicio) {
+      query = query.gte('fecha', filters.fecha_inicio);
+    }
+
+    if (filters.fecha_fin) {
+      query = query.lte('fecha', filters.fecha_fin);
+    }
+
+    if (filters.estado) {
+      query = query.eq('estado', filters.estado);
+    }
+
+    if (filters.tipo_material) {
+      query = query.eq('tipo_material', filters.tipo_material);
+    }
+
+    if (filters.search) {
+      query = query.or(
+        `nombre_cientifico.ilike.%${filters.search}%,nombre_comercial.ilike.%${filters.search}%`,
+      );
+    }
+
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      console.error('❌ Error al obtener recolecciones por vivero:', error);
+      throw new InternalServerErrorException(
+        'Error al obtener recolecciones por vivero',
+      );
+    }
+
+    const totalPages = Math.ceil((count || 0) / limit);
+
+    return {
+      success: true,
+      data: data || [],
+      pagination: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
+  }
+
+  /**
    * Obtiene una recolección por ID con todas sus relaciones
    */
   async findOne(id: number) {

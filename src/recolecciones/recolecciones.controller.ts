@@ -119,6 +119,18 @@ export class RecoleccionesController {
   }
 
   /**
+   * GET /api/recolecciones/vivero/:viveroId
+   * Lista recolecciones por vivero
+   */
+  @Get('vivero/:viveroId')
+  async findByVivero(
+    @Param('viveroId', ParseIntPipe) viveroId: number,
+    @Query() filters: FiltersRecoleccionDto,
+  ) {
+    return this.recoleccionesService.findByVivero(viveroId, filters);
+  }
+
+  /**
    * GET /api/recolecciones/:id
    * Obtiene detalle de una recolección
    */
